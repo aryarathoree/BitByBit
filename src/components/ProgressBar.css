@@ -1,0 +1,124 @@
+.progress-container {
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: clamp(16px, 3vw, 24px);
+  margin: 0 20px 32px 20px;
+  border: 1px solid #333;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  width: calc(100% - 40px);
+  max-width: 100%;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.progress-title {
+  color: #ffffff;
+  font-size: clamp(1.2rem, 3vw, 1.5rem);
+  font-weight: 600;
+  margin: 0;
+}
+
+.progress-percentage {
+  color: #00ff88;
+  font-size: clamp(1.4rem, 4vw, 1.8rem);
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+}
+
+.progress-bar {
+  width: 100%;
+  height: clamp(8px, 1.5vw, 12px);
+  background: #333;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00ff88, #00d4ff);
+  border-radius: 6px;
+  transition: width 0.5s ease-in-out;
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.progress-stats {
+  text-align: center;
+}
+
+.progress-text {
+  color: #cccccc;
+  font-size: clamp(0.8rem, 2vw, 0.9rem);
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .progress-container {
+    margin: 0 16px 24px 16px;
+    padding: 16px;
+    width: calc(100% - 32px);
+  }
+  
+  .progress-header {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .progress-container {
+    margin: 0 12px 20px 12px;
+    padding: 12px;
+    width: calc(100% - 24px);
+  }
+  
+  .progress-header {
+    gap: 6px;
+  }
+}
+
+@media (min-width: 1400px) {
+  .progress-container {
+    margin: 0 40px 40px 40px;
+    padding: 30px;
+    width: calc(100% - 80px);
+  }
+}
+
+@media (min-width: 1800px) {
+  .progress-container {
+    margin: 0 60px 50px 60px;
+    padding: 40px;
+    width: calc(100% - 120px);
+  }
+} 
