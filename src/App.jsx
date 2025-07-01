@@ -222,7 +222,7 @@ function App() {
   };
 
   if (isLoading) {
-    return (
+  return (
       <div className="app">
         <div className="loading-container">
           <div className="word-loader">
@@ -279,7 +279,7 @@ function App() {
               style={{ marginLeft: '10px', backgroundColor: '#ff6b6b', color: 'white' }}
             >
               🔄 Update to Latest Questions
-            </button>
+        </button>
           )}
         </div>
 

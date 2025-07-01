@@ -4628,3 +4628,4 @@ export const getTopicCounts = () => {
       sum + st.questions.filter(q => q.completed).length, 0)
   }));
 };
+ 
