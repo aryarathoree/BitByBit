@@ -1,30 +1,31 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense, useMemo, useCallback } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase/config';
-import { saveUserProgress, loadUserProgress } from './firebase/firestore';
+import { saveUserProgress, loadUserProgress, updateTopicProgress, updateQuestionProgress } from './firebase/firestore';
 import ProgressBar from './components/ProgressBar';
 import TopicSection from './components/TopicSection';
 import Auth from './components/Auth';
+import Toast from './components/Toast';
 import { topicData, motivationalQuotes, DATA_VERSION, getQuestionCount } from './utils/topicData';
+import { performanceMonitor } from './utils/performance';
 import logo from './assets/logo.png';
 import './App.css';
 
-// Lazy load heavy components
+
 const LeetCodeProfile = lazy(() => import('./components/LeetCodeProfile'));
 
 function App() {
   const [topics, setTopics] = useState(() => {
-    // Try to get cached data immediately for faster initial render
+
     const cached = localStorage.getItem('bitbybit-progress');
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
         const cachedVersion = parsed.version || '1.0.0';
         
-        // If versions don't match, use fresh data
-        if (cachedVersion !== DATA_VERSION) {
-          console.log(`Version mismatch: cached ${cachedVersion} vs current ${DATA_VERSION}. Using fresh data.`);
-          return topicData;
+
+                  if (cachedVersion !== DATA_VERSION) {
+            return topicData;
         }
         
         return Array.isArray(parsed) ? parsed : parsed.topics || topicData;
@@ -34,155 +35,210 @@ function App() {
     }
     return topicData;
   });
-  const [currentQuote, setCurrentQuote] = useState(() => 
+  
+  const [currentQuote] = useState(() => 
     motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)]
   );
   const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isDataSyncing, setIsDataSyncing] = useState(false);
+  const [hasMinDisplayTimePassed, setHasMinDisplayTimePassed] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
   const [showLeetCode, setShowLeetCode] = useState(false);
-  const [showResetOption, setShowResetOption] = useState(false);
 
-  // Function to merge existing progress with new topics
-  const mergeProgressWithNewTopics = (savedProgress) => {
+  const [isSaving, setIsSaving] = useState(false);
+  const [toast, setToast] = useState({ message: '', type: 'info', isVisible: false });
+
+
+  const progressStats = useMemo(() => {
+    if (!Array.isArray(topics)) return { totalSubtopics: 0, completedSubtopics: 0, overallProgress: 0 };
+    
+    const totalSubtopics = topics.reduce((total, topic) => {
+      return total + (Array.isArray(topic.subtopics) ? topic.subtopics.length : 0);
+    }, 0);
+    
+    const completedSubtopics = topics.reduce((total, topic) => {
+      if (!Array.isArray(topic.subtopics)) return total;
+      return total + topic.subtopics.filter(subtopic => subtopic && subtopic.completed).length;
+    }, 0);
+    
+    const overallProgress = totalSubtopics > 0 ? (completedSubtopics / totalSubtopics) * 100 : 0;
+    
+    return { totalSubtopics, completedSubtopics, overallProgress };
+  }, [topics]);
+
+
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type, isVisible: true });
+  }, []);
+
+
+  const hideToast = useCallback(() => {
+    setToast(prev => ({ ...prev, isVisible: false }));
+  }, []);
+
+
+  const mergeProgressWithNewTopics = useCallback((savedProgress) => {
     if (!savedProgress || savedProgress.length === 0) {
       return topicData;
     }
 
-    // Check if saved progress has version info
+
     const savedVersion = savedProgress.version || '1.0.0';
     
-    // If versions don't match, show reset option
+    
     if (savedVersion !== DATA_VERSION) {
-      setShowResetOption(true);
+
     }
 
-    // Create a map of existing progress by topic ID
+
     const progressMap = new Map();
     const progressData = Array.isArray(savedProgress) ? savedProgress : savedProgress.topics || [];
     
+
+          if (!Array.isArray(progressData)) {
+        return topicData;
+      }
+    
+
     progressData.forEach(topic => {
-      const subtopicMap = new Map();
-      topic.subtopics.forEach(subtopic => {
-        subtopicMap.set(subtopic.id, subtopic);
-      });
-      progressMap.set(topic.id, { ...topic, subtopicMap });
+      if (topic && typeof topic === 'object' && topic.id) {
+        const subtopicMap = new Map();
+        if (Array.isArray(topic.subtopics)) {
+          topic.subtopics.forEach(subtopic => {
+            if (subtopic && subtopic.id) {
+              subtopicMap.set(subtopic.id, subtopic);
+            }
+          });
+        }
+        progressMap.set(topic.id, { ...topic, subtopicMap });
+      }
     });
 
-    // Merge with current topicData
+
     return topicData.map(currentTopic => {
       const existingTopic = progressMap.get(currentTopic.id);
       
       if (!existingTopic) {
-        // This is a new topic, return as-is
         return currentTopic;
       }
 
-      // Merge subtopics, preserving completion status for existing ones
-      const mergedSubtopics = currentTopic.subtopics.map(currentSubtopic => {
-        const existingSubtopic = existingTopic.subtopicMap.get(currentSubtopic.id);
-        if (existingSubtopic) {
-          // Preserve completion status
-          return {
-            ...currentSubtopic,
-            completed: existingSubtopic.completed
-          };
-        }
-        // New subtopic, return as-is
-        return currentSubtopic;
-      });
+
+      const mergedSubtopics = Array.isArray(currentTopic.subtopics) ? 
+        currentTopic.subtopics.map(currentSubtopic => {
+          const existingSubtopic = existingTopic.subtopicMap.get(currentSubtopic.id);
+          if (existingSubtopic) {
+            return {
+              ...currentSubtopic,
+              completed: existingSubtopic.completed,
+              questions: Array.isArray(currentSubtopic.questions) ? 
+                currentSubtopic.questions.map((currentQuestion, index) => {
+                  const existingQuestion = existingSubtopic.questions?.[index];
+                  return existingQuestion ? 
+                    { ...currentQuestion, completed: existingQuestion.completed } : 
+                    currentQuestion;
+                }) : []
+            };
+          }
+          return currentSubtopic;
+        }) : [];
 
       return {
         ...currentTopic,
         subtopics: mergedSubtopics
       };
     });
-  };
-
-  // Function to reset progress and use latest data
-  const resetProgress = () => {
-    if (user) {
-      // Reset Firestore data
-      const progressData = {
-        topics: topicData,
-        version: DATA_VERSION,
-        lastUpdated: new Date().toISOString()
-      };
-      saveUserProgress(user.uid, progressData);
-      setTopics(topicData);
-    } else {
-      // Reset localStorage
-      localStorage.removeItem('bitbybit-progress');
-      setTopics(topicData);
-    }
-    setShowResetOption(false);
-  };
-
-  // Calculate overall progress
-  const totalSubtopics = topics.reduce((total, topic) => total + topic.subtopics.length, 0);
-  const completedSubtopics = topics.reduce((total, topic) => 
-    total + topic.subtopics.filter(subtopic => subtopic.completed).length, 0
-  );
-  const overallProgress = totalSubtopics > 0 ? (completedSubtopics / totalSubtopics) * 100 : 0;
-
-  // Handle authentication state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      
-      // Only set loading if we actually need to fetch data
-      const needsDataLoad = user ? true : false;
-      if (needsDataLoad) {
-        setIsLoading(true);
-      }
-      
-      if (user) {
-        // User is signed in - load progress from Firestore
-        try {
-          const savedProgress = await loadUserProgress(user.uid);
-          if (savedProgress) {
-            setTopics(mergeProgressWithNewTopics(savedProgress));
-          }
-        } catch (error) {
-          console.error('Error loading user progress:', error);
-        }
-        setIsLoading(false);
-      } else {
-        // User signed out - data already loaded from localStorage in useState
-        setIsLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
   }, []);
 
 
 
-  // Save data whenever topics change
-  useEffect(() => {
-    if (!isLoading) {
-      if (user) {
-        // Save to Firestore if user is signed in with version info
-        const progressData = {
-          topics: topics,
-          version: DATA_VERSION,
-          lastUpdated: new Date().toISOString()
-        };
-        saveUserProgress(user.uid, progressData);
-      } else {
-        // Save to localStorage if user is not signed in with version info
-        const progressData = {
-          topics: topics,
-          version: DATA_VERSION,
-          lastUpdated: new Date().toISOString()
-        };
-        localStorage.setItem('bitbybit-progress', JSON.stringify(progressData));
-      }
-    }
-  }, [topics, user, isLoading]);
 
-  const handleSubtopicToggle = (topicId, subtopicId) => {
-    setTopics(prevTopics => 
-      prevTopics.map(topic => 
+  useEffect(() => {
+    const minDisplayTimer = setTimeout(() => {
+      setHasMinDisplayTimePassed(true);
+    }, 2000);
+
+    return () => clearTimeout(minDisplayTimer);
+  }, []);
+
+
+  useEffect(() => {
+    performanceMonitor.startTiming('app-initialization');
+    
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setUser(user);
+      
+      if (user) {
+
+        setIsDataSyncing(true);
+        
+        try {
+
+          const savedProgress = await performanceMonitor.measureAsync(
+            'firestore-load-progress',
+            () => loadUserProgress(user.uid)
+          );
+          
+          if (savedProgress) {
+            performanceMonitor.startTiming('merge-progress');
+            setTopics(mergeProgressWithNewTopics(savedProgress));
+            performanceMonitor.endTiming('merge-progress');
+          }
+        } catch (error) {
+          console.error('Error loading user progress:', error);
+        } finally {
+          setIsDataSyncing(false);
+        }
+      }
+      
+
+      setAuthReady(true);
+    });
+
+    return () => unsubscribe();
+  }, [mergeProgressWithNewTopics, showToast]);
+
+
+  useEffect(() => {
+    if (hasMinDisplayTimePassed && authReady) {
+      setIsInitialLoad(false);
+      performanceMonitor.endTiming('app-initialization');
+    }
+  }, [hasMinDisplayTimePassed, authReady]);
+
+
+
+
+  useEffect(() => {
+    if (!isInitialLoad && !isDataSyncing) {
+      const timeoutId = setTimeout(() => {
+        if (user) {
+          const progressData = {
+            topics: topics,
+            version: DATA_VERSION,
+            lastUpdated: new Date().toISOString()
+          };
+          saveUserProgress(user.uid, progressData);
+        } else {
+          const progressData = {
+            topics: topics,
+            version: DATA_VERSION,
+            lastUpdated: new Date().toISOString()
+          };
+          localStorage.setItem('bitbybit-progress', JSON.stringify(progressData));
+        }
+      }, 500);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [topics, user, isInitialLoad, isDataSyncing]);
+
+
+  const handleSubtopicToggle = useCallback((topicId, subtopicId) => {
+    performanceMonitor.startTiming('subtopic-toggle');
+    
+    setTopics(prevTopics => {
+      const updatedTopics = prevTopics.map(topic => 
         topic.id === topicId 
           ? {
               ...topic,
@@ -193,13 +249,37 @@ function App() {
               )
             }
           : topic
-      )
-    );
-  };
+      );
+      
+      if (user) {
+        const updatedSubtopic = updatedTopics
+          .find(t => t.id === topicId)
+          ?.subtopics.find(s => s.id === subtopicId);
+        if (updatedSubtopic) {
+          setIsSaving(true);
+          performanceMonitor.measureAsync(
+            'firestore-update-subtopic',
+            () => updateTopicProgress(user.uid, topicId, subtopicId, updatedSubtopic.completed)
+          ).then(() => {
+            setIsSaving(false);
+          }).catch(error => {
+            console.error('Error updating subtopic progress:', error);
+            setIsSaving(false);
+            showToast('Failed to save progress. Please try again.', 'error');
+          });
+        }
+      }
+      
+      performanceMonitor.endTiming('subtopic-toggle');
+      return updatedTopics;
+    });
+  }, [user, showToast]);
 
-  const handleQuestionToggle = (topicId, subtopicId, questionIndex) => {
-    setTopics(prevTopics => 
-      prevTopics.map(topic => 
+  const handleQuestionToggle = useCallback((topicId, subtopicId, questionIndex) => {
+    performanceMonitor.startTiming('question-toggle');
+    
+    setTopics(prevTopics => {
+      const updatedTopics = prevTopics.map(topic => 
         topic.id === topicId 
           ? {
               ...topic,
@@ -217,12 +297,35 @@ function App() {
               )
             }
           : topic
-      )
-    );
-  };
+      );
+      
+      if (user) {
+        const updatedQuestion = updatedTopics
+          .find(t => t.id === topicId)
+          ?.subtopics.find(s => s.id === subtopicId)
+          ?.questions[questionIndex];
+        if (updatedQuestion) {
+          setIsSaving(true);
+          performanceMonitor.measureAsync(
+            'firestore-update-question',
+            () => updateQuestionProgress(user.uid, topicId, subtopicId, questionIndex, updatedQuestion.completed)
+          ).then(() => {
+            setIsSaving(false);
+          }).catch(error => {
+            console.error('Error updating question progress:', error);
+            setIsSaving(false);
+            showToast('Failed to save question progress. Please try again.', 'error');
+          });
+        }
+      }
+      
+      performanceMonitor.endTiming('question-toggle');
+      return updatedTopics;
+    });
+  }, [user, showToast]);
 
-  if (isLoading) {
-  return (
+  if (isInitialLoad) {
+    return (
       <div className="app">
         <div className="loading-container">
           <div className="word-loader">
@@ -235,9 +338,16 @@ function App() {
       </div>
     );
   }
+
   return (
     <div className="app">
-      <Auth user={user} />
+      <Auth user={user} showToast={showToast} />
+      <Toast 
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.isVisible}
+        onClose={hideToast}
+      />
       <div className="container">
         <header className="header">
           <div className="logo-container">
@@ -249,11 +359,13 @@ function App() {
             <span className="question-count">
               <strong>{getQuestionCount()}</strong> LeetCode Questions
             </span>
-
           </div>
           {user && (
             <div className="user-welcome">
-              <p>Welcome back, {user.displayName}! Your progress is synced.</p>
+              <p>Welcome back, {user.displayName}! Your progress is synced.
+                {isSaving && <span className="saving-indicator"> • Saving...</span>}
+                {isDataSyncing && <span className="syncing-indicator"> • Syncing...</span>}
+              </p>
             </div>
           )}
           {currentQuote && (
@@ -263,7 +375,7 @@ function App() {
           )}
         </header>
 
-        <ProgressBar progress={overallProgress} />
+        <ProgressBar progress={progressStats.overallProgress} />
 
         <div className="action-buttons">
           <button 
@@ -272,15 +384,6 @@ function App() {
           >
             {showLeetCode ? 'Hide LeetCode Profile' : 'Show LeetCode Profile'}
           </button>
-          {showResetOption && (
-            <button 
-              onClick={resetProgress}
-              className="reset-button"
-              style={{ marginLeft: '10px', backgroundColor: '#ff6b6b', color: 'white' }}
-            >
-              🔄 Update to Latest Questions
-        </button>
-          )}
         </div>
 
         {showLeetCode && (

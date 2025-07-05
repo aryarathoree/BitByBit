@@ -21,7 +21,6 @@ try {
   // Initialize Firebase services
   auth = getAuth(app);
   db = getFirestore(app);
-  console.log('Firebase initialized successfully');
 } catch (error) {
   console.warn('Firebase initialization failed:', error);
   // Create mock services for development/demo

@@ -469,3 +469,25 @@ html {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
 }
+
+.saving-indicator {
+  color: #4CAF50;
+  font-size: 0.9em;
+  font-weight: 500;
+  opacity: 0.8;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.syncing-indicator {
+  color: #2196F3;
+  font-size: 0.9em;
+  font-weight: 500;
+  opacity: 0.8;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.8; }
+  50% { opacity: 1; }
+  100% { opacity: 0.8; }
+}

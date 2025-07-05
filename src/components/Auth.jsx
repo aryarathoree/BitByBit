@@ -3,7 +3,7 @@ import { auth } from '../firebase/config';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import './Auth.css';
 
-const Auth = ({ user, onAuthStateChange }) => {
+const Auth = ({ user, onAuthStateChange, showToast }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const signInWithGoogle = async () => {
@@ -13,6 +13,9 @@ const Auth = ({ user, onAuthStateChange }) => {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error('Error signing in with Google:', error);
+      if (showToast) {
+        showToast('Error signing in. Please try again.', 'error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -22,8 +25,14 @@ const Auth = ({ user, onAuthStateChange }) => {
     setIsLoading(true);
     try {
       await signOut(auth);
+      if (showToast) {
+        showToast('Successfully signed out. Your progress is now stored locally.', 'info');
+      }
     } catch (error) {
       console.error('Error signing out:', error);
+      if (showToast) {
+        showToast('Error signing out. Please try again.', 'error');
+      }
     } finally {
       setIsLoading(false);
     }
