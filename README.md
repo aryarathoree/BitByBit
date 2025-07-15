@@ -9,8 +9,6 @@
   [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
   
   **A modern, interactive DSA practice platform with 3113+ LeetCode questions organized by topics**
-  
-  [🚀 Live Demo](#) | [📖 Documentation](#features) | [🐛 Report Bug](#contributing)
 </div>
 
 ---
